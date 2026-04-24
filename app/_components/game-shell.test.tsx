@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { GameShell } from "@/app/_components/game-shell";
 import { gameReducer, createInitialSession } from "@/app/_game/reducer";
-import { saveSession } from "@/app/_game/storage";
+import { saveSession, STORAGE_KEY } from "@/app/_game/storage";
 
 function openPlayerEntry() {
   render(<GameShell />);
@@ -65,6 +65,34 @@ function createSavedRoleDistributionSession() {
   return gameReducer(session, { type: "BEGIN_ROUND" });
 }
 
+function createFinishedSession(scores: number[]) {
+  let session = gameReducer(createInitialSession(), { type: "START_NEW_GAME" });
+  session = gameReducer(session, { type: "GO_TO_PLAYER_ENTRY" });
+
+  session.players.forEach((player, index) => {
+    session = gameReducer(session, {
+      type: "SET_PLAYER_NAME",
+      playerId: player.id,
+      name: `Jugador ${index + 1}`,
+    });
+  });
+
+  session = gameReducer(session, { type: "BEGIN_ROUND" });
+
+  return {
+    ...session,
+    status: "finished" as const,
+    players: session.players.map((player, index) => ({
+      ...player,
+      score: scores[index] ?? 0,
+    })),
+  };
+}
+
+function persistRawSession(session: ReturnType<typeof createFinishedSession>) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+}
+
 describe("GameShell roles", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -72,6 +100,7 @@ describe("GameShell roles", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -267,5 +296,156 @@ describe("GameShell roles", () => {
     expect(nameInputs[2]!.value).toBe("Jugador 3");
     expect(nameInputs[3]!.value).toBe("Jugador 4");
     expect(startButton.hasAttribute("disabled")).toBe(false);
+  });
+
+  test("counts down clue timer and resets on next clue", () => {
+    vi.useFakeTimers();
+    openSetup();
+
+    fireEvent.change(screen.getByLabelText("Temporizador por pista"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+    const nameInputs = screen.getAllByPlaceholderText(/Jugador \d+/);
+    nameInputs.forEach((input, index) => {
+      fireEvent.change(input, { target: { value: `Jugador ${index + 1}` } });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Empezar reparto" }));
+    revealAllRoles();
+
+    expect(screen.getByText("10s")).toBeDefined();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.getByText("9s")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+
+    expect(screen.getByText("10s")).toBeDefined();
+  });
+
+  test("counts down debate timer", () => {
+    vi.useFakeTimers();
+    openSetup();
+
+    fireEvent.change(screen.getByLabelText("Temporizador de debate"), {
+      target: { value: "60" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+    const nameInputs = screen.getAllByPlaceholderText(/Jugador \d+/);
+    nameInputs.forEach((input, index) => {
+      fireEvent.change(input, { target: { value: `Jugador ${index + 1}` } });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Empezar reparto" }));
+    revealAllRoles();
+    completeCluePhase();
+
+    expect(screen.getByText("60s")).toBeDefined();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.getByText("59s")).toBeDefined();
+  });
+
+  test("returns from debate to the last clue screen", () => {
+    startRound();
+    revealAllRoles();
+    completeCluePhase();
+
+    fireEvent.click(screen.getByRole("button", { name: "← Volver a pistas" }));
+
+    expect(screen.getByText("Pista 4/4")).toBeDefined();
+    expect(screen.getByText("Pista de Jugador 4")).toBeDefined();
+  });
+
+  test("allows returning from voting to debate before any vote", () => {
+    startRound();
+    revealAllRoles();
+    completeCluePhase();
+    startVotingPhase();
+
+    fireEvent.click(screen.getByRole("button", { name: "← Volver al debate" }));
+
+    expect(screen.getByText("Debate")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Ir a votacion" })).toBeDefined();
+  });
+
+  test("hides the back action after the first primary vote", () => {
+    startRound();
+    revealAllRoles();
+    completeCluePhase();
+    startVotingPhase();
+
+    voteForPlayer("Jugador 2");
+
+    expect(screen.queryByRole("button", { name: "← Volver al debate" })).toBeNull();
+  });
+
+  test("finishes the game from the scoreboard", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    openSetup();
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+
+    const nameInputs = screen.getAllByPlaceholderText(/Jugador \d+/);
+    nameInputs.forEach((input, index) => {
+      fireEvent.change(input, { target: { value: `Jugador ${index + 1}` } });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Empezar reparto" }));
+    revealAllRoles();
+    completeCluePhase();
+    startVotingPhase();
+
+    voteForPlayer("Jugador 2");
+    voteForPlayer("Jugador 1");
+    voteForPlayer("Jugador 1");
+    voteForPlayer("Jugador 1");
+    fireEvent.click(screen.getByRole("button", { name: "Ver marcador" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Finalizar partida" }));
+
+    expect(screen.getByText("Fin de partida")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Nueva partida" })).toBeDefined();
+  });
+
+  test("renders a single winner on the finished screen", async () => {
+    persistRawSession(createFinishedSession([5, 3, 2, 1]));
+
+    render(<GameShell />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continuar partida" }));
+
+    expect(screen.getByText("Gana Jugador 1")).toBeDefined();
+    expect(screen.getByText("Partida completada. Estos son los puntos finales.")).toBeDefined();
+  });
+
+  test("renders shared winners on tie", async () => {
+    persistRawSession(createFinishedSession([5, 5, 2, 1]));
+
+    render(<GameShell />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continuar partida" }));
+
+    expect(screen.getByText("Ganadores compartidos")).toBeDefined();
+    expect(screen.getByText("Empate entre Jugador 1, Jugador 2.")).toBeDefined();
+  });
+
+  test("starts a fresh game from the finished screen", async () => {
+    persistRawSession(createFinishedSession([5, 3, 2, 1]));
+
+    render(<GameShell />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continuar partida" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nueva partida" }));
+
+    expect(screen.getByText("Configura la partida")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Continuar partida" })).toBeNull();
   });
 });

@@ -447,6 +447,92 @@ describe("game reducer", () => {
       firstRoundOrder[0]!,
     ]);
   });
+
+  test("ignores round actions when there is no active round", () => {
+    const session = gameReducer(createInitialSession(), { type: "START_NEW_GAME" });
+
+    const nextClue = gameReducer(session, { type: "NEXT_CLUE" });
+    const castVote = gameReducer(session, { type: "CAST_VOTE", targetPlayerId: "player-1" });
+    const reveal = gameReducer(session, { type: "CONTINUE_FROM_REVEAL" });
+    const finalGuess = gameReducer(session, { type: "SUBMIT_FINAL_GUESS", guess: "pizza" });
+    const backToClues = gameReducer(session, { type: "GO_BACK_TO_CLUES" });
+    const backToDebate = gameReducer(session, { type: "GO_BACK_TO_DEBATE" });
+
+    expect(nextClue).toBe(session);
+    expect(castVote).toBe(session);
+    expect(reveal).toBe(session);
+    expect(finalGuess).toBe(session);
+    expect(backToClues).toBe(session);
+    expect(backToDebate).toBe(session);
+  });
+
+  test("ignores tie-break votes outside tie candidates", () => {
+    let session = forceVoting(namedSession(4));
+    const [a, b, c, d] = session.players;
+
+    for (const targetPlayerId of [b.id, a.id, a.id, b.id]) {
+      session = gameReducer(session, { type: "CAST_VOTE", targetPlayerId });
+    }
+
+    const invalidTieBreak = gameReducer(session, {
+      type: "CAST_VOTE",
+      targetPlayerId: c.id,
+    });
+
+    expect(session.status).toBe("tie_break_voting");
+    expect(invalidTieBreak).toBe(session);
+    expect(invalidTieBreak.voteVoterIndex).toBe(0);
+    expect(invalidTieBreak.currentRound?.votes).toHaveLength(4);
+    expect(d.id).toBeDefined();
+  });
+
+  test("ignores abort round outside role distribution", () => {
+    const session = {
+      ...namedSession(3),
+      status: "clue_phase" as const,
+    };
+    const aborted = gameReducer(session, { type: "ABORT_CURRENT_ROUND_TO_PLAYER_ENTRY" });
+
+    expect(aborted).toBe(session);
+  });
+
+  test("keeps finished status when next round is requested after the limit", () => {
+    const baseSession = namedSession(3);
+    const session = {
+      ...baseSession,
+      status: "finished" as const,
+      currentRoundNumber: 3,
+      settings: {
+        ...baseSession.settings,
+        roundsTotal: 3,
+      },
+    };
+
+    const next = gameReducer(session, { type: "NEXT_ROUND" });
+
+    expect(next.status).toBe("finished");
+  });
+
+  test("starts debate without mutating round-scoped indices", () => {
+    const baseSession = namedSession(4);
+    const session = {
+      ...baseSession,
+      status: "clue_phase" as const,
+      roleDistributionIndex: 2,
+      clueTurnIndex: 1,
+      voteVoterIndex: 3,
+      tieCandidateIds: [baseSession.players[0]!.id],
+    };
+
+    const debated = gameReducer(session, { type: "START_DEBATE" });
+
+    expect(debated.status).toBe("debate_phase");
+    expect(debated.roleDistributionIndex).toBe(2);
+    expect(debated.clueTurnIndex).toBe(1);
+    expect(debated.voteVoterIndex).toBe(3);
+    expect(debated.tieCandidateIds).toEqual(session.tieCandidateIds);
+    expect(debated.currentRound).toBe(session.currentRound);
+  });
 });
 
 describe("storage", () => {
