@@ -5,7 +5,9 @@ import { getPlayerRole } from "@/app/_game/roles";
 import {
   createRound,
   getVoteCandidates,
+  hasDuplicateNames,
   isFinalGuessCorrect,
+  rotatePlayerIds,
 } from "@/app/_game/rules";
 import { clearSession, loadSession, saveSession, STORAGE_KEY } from "@/app/_game/storage";
 import type { GameSession } from "@/app/_game/types";
@@ -37,6 +39,21 @@ function forceVoting(session: GameSession): GameSession {
   };
 }
 
+function detectImpostor(session: GameSession): GameSession {
+  let votingSession = forceVoting(session);
+  const impostorId = votingSession.currentRound?.impostorPlayerId;
+  const innocent = votingSession.players.find((player) => player.id !== impostorId);
+
+  for (const voter of votingSession.players) {
+    votingSession = gameReducer(votingSession, {
+      type: "CAST_VOTE",
+      targetPlayerId: voter.id === impostorId ? innocent!.id : impostorId!,
+    });
+  }
+
+  return votingSession;
+}
+
 describe("game rules", () => {
   test("creates players with unique avatar ids while avatars are available", () => {
     const session = gameReducer(createInitialSession(), { type: "START_NEW_GAME" });
@@ -56,6 +73,23 @@ describe("game rules", () => {
     expect(round.turnOrderPlayerIds).toHaveLength(5);
   });
 
+  test("creates a round with a sanitized manual word", () => {
+    const session = namedSession(4);
+    const round = createRound(
+      1,
+      session.players,
+      {
+        ...session.settings,
+        wordMode: "manual",
+        manualSecretWord: "  Paella  ",
+      },
+      () => 0,
+    );
+
+    expect(round.secretWordValue).toBe("Paella");
+    expect(round.secretWordId).toBe("manual:paella");
+  });
+
   test("excludes the voter from vote candidates", () => {
     const session = namedSession(3);
     const voter = session.players[0];
@@ -68,6 +102,28 @@ describe("game rules", () => {
   test("normalizes final guesses with trim and case-insensitive comparison", () => {
     expect(isFinalGuessCorrect("  PIZZA ", "pizza")).toBe(true);
     expect(isFinalGuessCorrect("pizzas", "pizza")).toBe(false);
+  });
+
+  test("detects duplicate names ignoring spaces and case", () => {
+    const session = namedSession(3);
+    const players = session.players.map((player, index) => ({
+      ...player,
+      name: index === 0 ? " Ana " : index === 1 ? "ana" : "Luis",
+    }));
+
+    expect(hasDuplicateNames(players)).toBe(true);
+  });
+
+  test("rotates the active players order consistently", () => {
+    const session = namedSession(4);
+
+    expect(rotatePlayerIds(session.players, 0)).toEqual(session.players.map((player) => player.id));
+    expect(rotatePlayerIds(session.players, 1)).toEqual([
+      session.players[1]!.id,
+      session.players[2]!.id,
+      session.players[3]!.id,
+      session.players[0]!.id,
+    ]);
   });
 
   test("derives impostor and citizen roles from the current round", () => {
@@ -102,6 +158,58 @@ describe("game reducer", () => {
     expect(session.settings.categoryId).toBe("animales");
     expect(session.players[0].name).toBe("Ana");
     expect(session.players[0].avatarId).toBeTruthy();
+  });
+
+  test("starts a round with a manual word and clears it from settings", () => {
+    let session = gameReducer(createInitialSession(), { type: "START_NEW_GAME" });
+    session = gameReducer(session, {
+      type: "UPDATE_SETTINGS",
+      settings: {
+        wordMode: "manual",
+        manualSecretWord: "  Croqueta  ",
+      },
+    });
+    session = gameReducer(session, { type: "GO_TO_PLAYER_ENTRY" });
+
+    session.players.forEach((player, index) => {
+      session = gameReducer(session, {
+        type: "SET_PLAYER_NAME",
+        playerId: player.id,
+        name: `Jugador ${index + 1}`,
+      });
+    });
+
+    session = gameReducer(session, { type: "BEGIN_ROUND" });
+
+    expect(session.currentRound?.secretWordValue).toBe("Croqueta");
+    expect(session.settings.wordMode).toBe("random");
+    expect(session.settings.manualSecretWord).toBe("");
+  });
+
+  test("blocks manual mode when the secret word is blank", () => {
+    let session = gameReducer(createInitialSession(), { type: "START_NEW_GAME" });
+    session = gameReducer(session, {
+      type: "UPDATE_SETTINGS",
+      settings: {
+        wordMode: "manual",
+        manualSecretWord: "   ",
+      },
+    });
+    session = gameReducer(session, { type: "GO_TO_PLAYER_ENTRY" });
+
+    session.players.forEach((player, index) => {
+      session = gameReducer(session, {
+        type: "SET_PLAYER_NAME",
+        playerId: player.id,
+        name: `Jugador ${index + 1}`,
+      });
+    });
+
+    const blocked = gameReducer(session, { type: "BEGIN_ROUND" });
+
+    expect(blocked.status).toBe("player_entry");
+    expect(blocked.currentRound).toBeNull();
+    expect(blocked.currentRoundNumber).toBe(0);
   });
 
   test("keeps existing avatars and assigns unique avatars to added players", () => {
@@ -212,6 +320,48 @@ describe("game reducer", () => {
     expect(session.players.every((player) => player.score === 1)).toBe(true);
   });
 
+  test("skips final guess when disabled", () => {
+    let session = namedSession(3);
+    session = {
+      ...session,
+      settings: {
+        ...session.settings,
+        finalGuessEnabled: false,
+      },
+    };
+
+    session = detectImpostor(session);
+    expect(session.status).toBe("reveal_phase");
+
+    session = gameReducer(session, { type: "CONTINUE_FROM_REVEAL" });
+
+    expect(session.status).toBe("scoreboard_phase");
+    expect(session.currentRound?.result?.scoreApplied).toBe(true);
+  });
+
+  test("applies citizen scoring when the impostor fails the final guess", () => {
+    let session = detectImpostor(namedSession(3));
+
+    session = gameReducer(session, { type: "CONTINUE_FROM_REVEAL" });
+    expect(session.status).toBe("final_guess_phase");
+
+    session = gameReducer(session, {
+      type: "SUBMIT_FINAL_GUESS",
+      guess: "palabra incorrecta",
+    });
+
+    const impostorId = session.currentRound?.impostorPlayerId;
+    expect(session.status).toBe("scoreboard_phase");
+    expect(session.currentRound?.result?.outcome).toBe("impostor_detected_and_failed");
+    expect(session.currentRound?.result?.finalGuessCorrect).toBe(false);
+    expect(session.players.find((player) => player.id === impostorId)?.score).toBe(0);
+    expect(
+      session.players
+        .filter((player) => player.id !== impostorId)
+        .every((player) => player.score === 2),
+    ).toBe(true);
+  });
+
   test("starts a tie-break vote after a primary tie", () => {
     let session = forceVoting(namedSession(4));
     const [a, b, c, d] = session.players;
@@ -246,6 +396,143 @@ describe("game reducer", () => {
     expect(session.status).toBe("scoreboard_phase");
     expect(session.players.find((player) => player.id === session.currentRound?.impostorPlayerId)?.score).toBe(3);
   });
+
+  test("finishes the game after scoring the last round", () => {
+    let session = gameReducer(createInitialSession(), { type: "START_NEW_GAME" });
+    session = gameReducer(session, {
+      type: "UPDATE_SETTINGS",
+      settings: { playerCount: 3, roundsTotal: 1, finalGuessEnabled: false },
+    });
+    session = gameReducer(session, { type: "GO_TO_PLAYER_ENTRY" });
+
+    session.players.forEach((player, index) => {
+      session = gameReducer(session, {
+        type: "SET_PLAYER_NAME",
+        playerId: player.id,
+        name: `Jugador ${index + 1}`,
+      });
+    });
+
+    session = gameReducer(session, { type: "BEGIN_ROUND" });
+    session = detectImpostor(session);
+    session = gameReducer(session, { type: "CONTINUE_FROM_REVEAL" });
+
+    expect(session.status).toBe("finished");
+    expect(session.completedRounds).toHaveLength(1);
+    expect(session.completedRounds[0]?.result?.scoreApplied).toBe(true);
+    expect(session.currentRound?.result?.scoreApplied).toBe(true);
+  });
+
+  test("starts the next round with rotated order and reset indices", () => {
+    let session = detectImpostor(namedSession(4));
+    session = gameReducer(session, { type: "CONTINUE_FROM_REVEAL" });
+
+    const firstRoundOrder = session.currentRound!.turnOrderPlayerIds;
+    session = gameReducer(session, { type: "NEXT_ROUND" });
+
+    expect(session.status).toBe("role_distribution");
+    expect(session.currentRoundNumber).toBe(2);
+    expect(session.currentRound?.roundNumber).toBe(2);
+    expect(session.currentRound?.votes).toEqual([]);
+    expect(session.currentRound?.result).toBeNull();
+    expect(session.roleDistributionIndex).toBe(0);
+    expect(session.clueTurnIndex).toBe(0);
+    expect(session.voteVoterIndex).toBe(0);
+    expect(session.tieCandidateIds).toEqual([]);
+    expect(session.currentRound?.turnOrderPlayerIds).not.toEqual(firstRoundOrder);
+    expect(session.currentRound?.turnOrderPlayerIds).toEqual([
+      firstRoundOrder[1]!,
+      firstRoundOrder[2]!,
+      firstRoundOrder[3]!,
+      firstRoundOrder[0]!,
+    ]);
+  });
+
+  test("ignores round actions when there is no active round", () => {
+    const session = gameReducer(createInitialSession(), { type: "START_NEW_GAME" });
+
+    const nextClue = gameReducer(session, { type: "NEXT_CLUE" });
+    const castVote = gameReducer(session, { type: "CAST_VOTE", targetPlayerId: "player-1" });
+    const reveal = gameReducer(session, { type: "CONTINUE_FROM_REVEAL" });
+    const finalGuess = gameReducer(session, { type: "SUBMIT_FINAL_GUESS", guess: "pizza" });
+    const backToClues = gameReducer(session, { type: "GO_BACK_TO_CLUES" });
+    const backToDebate = gameReducer(session, { type: "GO_BACK_TO_DEBATE" });
+
+    expect(nextClue).toBe(session);
+    expect(castVote).toBe(session);
+    expect(reveal).toBe(session);
+    expect(finalGuess).toBe(session);
+    expect(backToClues).toBe(session);
+    expect(backToDebate).toBe(session);
+  });
+
+  test("ignores tie-break votes outside tie candidates", () => {
+    let session = forceVoting(namedSession(4));
+    const [a, b, c, d] = session.players;
+
+    for (const targetPlayerId of [b.id, a.id, a.id, b.id]) {
+      session = gameReducer(session, { type: "CAST_VOTE", targetPlayerId });
+    }
+
+    const invalidTieBreak = gameReducer(session, {
+      type: "CAST_VOTE",
+      targetPlayerId: c.id,
+    });
+
+    expect(session.status).toBe("tie_break_voting");
+    expect(invalidTieBreak).toBe(session);
+    expect(invalidTieBreak.voteVoterIndex).toBe(0);
+    expect(invalidTieBreak.currentRound?.votes).toHaveLength(4);
+    expect(d.id).toBeDefined();
+  });
+
+  test("ignores abort round outside role distribution", () => {
+    const session = {
+      ...namedSession(3),
+      status: "clue_phase" as const,
+    };
+    const aborted = gameReducer(session, { type: "ABORT_CURRENT_ROUND_TO_PLAYER_ENTRY" });
+
+    expect(aborted).toBe(session);
+  });
+
+  test("keeps finished status when next round is requested after the limit", () => {
+    const baseSession = namedSession(3);
+    const session = {
+      ...baseSession,
+      status: "finished" as const,
+      currentRoundNumber: 3,
+      settings: {
+        ...baseSession.settings,
+        roundsTotal: 3,
+      },
+    };
+
+    const next = gameReducer(session, { type: "NEXT_ROUND" });
+
+    expect(next.status).toBe("finished");
+  });
+
+  test("starts debate without mutating round-scoped indices", () => {
+    const baseSession = namedSession(4);
+    const session = {
+      ...baseSession,
+      status: "clue_phase" as const,
+      roleDistributionIndex: 2,
+      clueTurnIndex: 1,
+      voteVoterIndex: 3,
+      tieCandidateIds: [baseSession.players[0]!.id],
+    };
+
+    const debated = gameReducer(session, { type: "START_DEBATE" });
+
+    expect(debated.status).toBe("debate_phase");
+    expect(debated.roleDistributionIndex).toBe(2);
+    expect(debated.clueTurnIndex).toBe(1);
+    expect(debated.voteVoterIndex).toBe(3);
+    expect(debated.tieCandidateIds).toEqual(session.tieCandidateIds);
+    expect(debated.currentRound).toBe(session.currentRound);
+  });
 });
 
 describe("storage", () => {
@@ -262,8 +549,53 @@ describe("storage", () => {
     expect(loadSession()?.players.map((player) => player.avatarId)).toEqual(session.players.map((player) => player.avatarId));
   });
 
+  test("does not persist the manual secret word", () => {
+    const session = {
+      ...namedSession(3),
+      settings: {
+        ...namedSession(3).settings,
+        wordMode: "manual" as const,
+        manualSecretWord: "Reservada",
+      },
+    };
+
+    saveSession(session);
+
+    expect(localStorage.getItem(STORAGE_KEY)).not.toContain("Reservada");
+    expect(loadSession()?.settings.manualSecretWord).toBe("");
+  });
+
+  test("removes idle sessions instead of persisting them", () => {
+    saveSession(createInitialSession());
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  test("removes finished sessions instead of persisting them", () => {
+    saveSession({
+      ...namedSession(3),
+      status: "finished",
+    });
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
   test("ignores and clears corrupt sessions", () => {
     localStorage.setItem(STORAGE_KEY, "{bad json");
+
+    expect(loadSession()).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  test("clears structurally invalid stored sessions", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        id: "broken-session",
+        settings: createInitialSession().settings,
+        players: [],
+      }),
+    );
 
     expect(loadSession()).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
@@ -293,5 +625,27 @@ describe("storage", () => {
     expect(loaded).not.toBeNull();
     expect(loaded?.players.every((player) => player.avatarId)).toBe(true);
     expect(new Set(loaded?.players.map((player) => player.avatarId)).size).toBe(3);
+  });
+
+  test("hydrates default settings for older sessions", () => {
+    const session = namedSession(3);
+    const legacySession = {
+      ...session,
+      settings: {
+        playerCount: session.settings.playerCount,
+        roundsTotal: session.settings.roundsTotal,
+        categoryId: session.settings.categoryId,
+        clueTimerSeconds: session.settings.clueTimerSeconds,
+        debateTimerSeconds: session.settings.debateTimerSeconds,
+        finalGuessEnabled: session.settings.finalGuessEnabled,
+      },
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(legacySession));
+
+    const loaded = loadSession();
+
+    expect(loaded?.settings.wordMode).toBe("random");
+    expect(loaded?.settings.manualSecretWord).toBe("");
   });
 });

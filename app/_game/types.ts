@@ -43,6 +43,8 @@ export type GameSettings = {
   playerCount: number;
   roundsTotal: number;
   categoryId: string;
+  wordMode: "random" | "manual";
+  manualSecretWord: string;
   clueTimerSeconds: number | null;
   debateTimerSeconds: number | null;
   finalGuessEnabled: boolean;

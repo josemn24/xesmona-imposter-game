@@ -10,6 +10,7 @@ export const categories: Category[] = [
   { id: "personas-famosas", name: "Personas famosas", enabled: true },
   { id: "xvip", name: "XVIP", enabled: true },
   { id: "futbolistas", name: "Futbolistas", enabled: true },
+  { id: "situaciones", name: "Situaciones", enabled: true },
 ];
 
 const valuesByCategory: Record<string, string[]> = {
@@ -404,6 +405,28 @@ const valuesByCategory: Record<string, string[]> = {
     "Lewandowski",
     "Neymar",
     "Bellingham",
+  ],
+  situaciones: [
+    "viajando en coche",
+    "en la playa",
+    "en el aeropuerto",
+    "en una boda",
+    "en un funeral",
+    "en el supermercado",
+    "en una discoteca",
+    "en el gimnasio",
+    "en clase",
+    "en una entrevista de trabajo",
+    "en una cita",
+    "en el dentista",
+    "en el hospital",
+    "en un concierto",
+    "en el cine",
+    "en un camping",
+    "en una manifestacion",
+    "en un examen",
+    "en el metro",
+    "en un atasco",
   ],
 };
 

@@ -1,4 +1,5 @@
 import { repairPlayerAvatars } from "@/app/_game/avatars";
+import { defaultSettings } from "@/app/_game/rules";
 import type { GameSession } from "@/app/_game/types";
 
 export const STORAGE_KEY = "imposter-game:v2";
@@ -13,7 +14,16 @@ export function saveSession(session: GameSession, storage: Storage = localStorag
     return;
   }
 
-  storage.setItem(STORAGE_KEY, JSON.stringify(session));
+  storage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      ...session,
+      settings: {
+        ...session.settings,
+        manualSecretWord: "",
+      },
+    }),
+  );
 }
 
 export function loadSession(storage: Storage = localStorage): GameSession | null {
@@ -33,6 +43,11 @@ export function loadSession(storage: Storage = localStorage): GameSession | null
 
     return {
       ...(parsed as GameSession),
+      settings: {
+        ...defaultSettings,
+        ...(parsed.settings ?? {}),
+        manualSecretWord: "",
+      },
       players: repairPlayerAvatars((parsed.players ?? []) as GameSession["players"]),
     };
   } catch {

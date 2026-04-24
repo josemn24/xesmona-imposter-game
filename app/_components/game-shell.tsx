@@ -20,7 +20,7 @@ import { getAvatarSrc } from "@/app/_game/avatars";
 import { trackEvent } from "@/app/_game/analytics";
 import { getPlayerRole, getRoleMeta } from "@/app/_game/roles";
 import { createInitialSession, gameReducer } from "@/app/_game/reducer";
-import { getVoteCandidates, hasDuplicateNames } from "@/app/_game/rules";
+import { getVoteCandidates, hasDuplicateNames, sanitizeManualSecretWord } from "@/app/_game/rules";
 import { clearSession, loadSession, saveSession } from "@/app/_game/storage";
 import type { GameAction, GameSession, Player } from "@/app/_game/types";
 
@@ -369,6 +369,9 @@ export function GameShell() {
   }
 
   if (session.status === "setup") {
+    const manualWordSelected = session.settings.wordMode === "manual";
+    const manualWordMissing = sanitizeManualSecretWord(session.settings.manualSecretWord).length === 0;
+
     return (
       <Screen
         backAction={{
@@ -413,6 +416,50 @@ export function GameShell() {
               </option>
             ))}
           </Select>
+        </Field>
+        <Field
+          label="Palabra secreta"
+          hint={
+            manualWordSelected
+              ? "Se usara solo en la proxima ronda y luego se borrara."
+              : "Por defecto la app elige una palabra aleatoria de la categoria."
+          }
+        >
+          <Select
+            aria-label="Modo de palabra secreta"
+            value={session.settings.wordMode}
+            onChange={(event) =>
+              dispatch({
+                type: "UPDATE_SETTINGS",
+                settings: {
+                  wordMode: event.target.value as "random" | "manual",
+                  manualSecretWord:
+                    event.target.value === "manual" ? session.settings.manualSecretWord : "",
+                },
+              })
+            }
+          >
+            <option value="random">Aleatoria</option>
+            <option value="manual">Manual</option>
+          </Select>
+          {manualWordSelected ? (
+            <TextInput
+              aria-label="Palabra secreta manual"
+              autoCapitalize="words"
+              autoCorrect="off"
+              onChange={(event) =>
+                dispatch({
+                  type: "UPDATE_SETTINGS",
+                  settings: { manualSecretWord: event.target.value },
+                })
+              }
+              placeholder="Escribe la palabra secreta"
+              value={session.settings.manualSecretWord}
+            />
+          ) : null}
+          {manualWordSelected && manualWordMissing ? (
+            <Banner tone="danger">Escribe una palabra secreta para usar el modo manual.</Banner>
+          ) : null}
         </Field>
         <Field label="Rondas objetivo">
           <Select
@@ -493,6 +540,9 @@ export function GameShell() {
   if (session.status === "player_entry") {
     const emptyNames = session.players.some((player) => player.name.trim().length === 0);
     const duplicateNames = hasDuplicateNames(session.players);
+    const manualWordMissing =
+      session.settings.wordMode === "manual" &&
+      sanitizeManualSecretWord(session.settings.manualSecretWord).length === 0;
 
     return (
       <Screen
@@ -508,7 +558,15 @@ export function GameShell() {
             {duplicateNames ? (
               <Banner>Hay nombres repetidos. Puedes continuar, pero conviene diferenciarlos.</Banner>
             ) : null}
-            <Button disabled={emptyNames} onClick={() => dispatch({ type: "BEGIN_ROUND" })}>
+            {manualWordMissing ? (
+              <Banner tone="danger">
+                Falta la palabra manual. Vuelve a configuracion y escribela antes de empezar el reparto.
+              </Banner>
+            ) : null}
+            <Button
+              disabled={emptyNames || manualWordMissing}
+              onClick={() => dispatch({ type: "BEGIN_ROUND" })}
+            >
               Empezar reparto
             </Button>
             <Button onClick={() => dispatch({ type: "AUTOFILL_PLAYERS" })} variant="secondary">

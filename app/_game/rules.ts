@@ -15,6 +15,8 @@ export const defaultSettings: GameSettings = {
   playerCount: 4,
   roundsTotal: 5,
   categoryId: "comida",
+  wordMode: "random",
+  manualSecretWord: "",
   clueTimerSeconds: null,
   debateTimerSeconds: null,
   finalGuessEnabled: true,
@@ -77,6 +79,14 @@ export function normalizeGuess(value: string) {
   return value.trim().toLocaleLowerCase("es");
 }
 
+export function sanitizeManualSecretWord(value: string) {
+  return value.trim();
+}
+
+export function hasValidManualSecretWord(settings: GameSettings) {
+  return sanitizeManualSecretWord(settings.manualSecretWord).length > 0;
+}
+
 export function isFinalGuessCorrect(guess: string, secretWord: string) {
   return normalizeGuess(guess) === normalizeGuess(secretWord);
 }
@@ -111,7 +121,17 @@ export function createRound(
   settings: GameSettings,
   random = Math.random,
 ): Round {
-  const word = selectRoundWord(settings.categoryId, random);
+  const sanitizedManualWord = sanitizeManualSecretWord(settings.manualSecretWord);
+  const word =
+    settings.wordMode === "manual" && sanitizedManualWord
+      ? {
+          id: `manual:${normalizeGuess(sanitizedManualWord)}`,
+          value: sanitizedManualWord,
+          categoryId: settings.categoryId,
+          locale: "es" as const,
+          enabled: true,
+        }
+      : selectRoundWord(settings.categoryId, random);
   const impostor = selectRandomItem(players.filter((player) => player.isActive), random);
   const turnOrderPlayerIds = rotatePlayerIds(players, roundNumber - 1);
 
@@ -239,6 +259,18 @@ export function applyScore(players: Player[], round: Round): Player[] {
 
     return player;
   });
+}
+
+export function resetRoundScopedSettings(settings: GameSettings): GameSettings {
+  if (settings.wordMode !== "manual") {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    wordMode: "random",
+    manualSecretWord: "",
+  };
 }
 
 export function markScoreApplied(round: Round): Round {
