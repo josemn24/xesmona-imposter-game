@@ -14,6 +14,16 @@ export type GameStatus =
 
 export type VotePhase = "primary" | "tieBreak";
 
+export type RoleId = "citizen" | "impostor";
+
+export type RoleMeta = {
+  id: RoleId;
+  label: string;
+  emoji: string;
+  description: string;
+  tone: "default" | "danger";
+};
+
 export type RoundOutcome =
   | "impostor_survived"
   | "impostor_detected"

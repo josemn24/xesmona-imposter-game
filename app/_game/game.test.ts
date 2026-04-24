@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { gameReducer, createInitialSession } from "@/app/_game/reducer";
+import { getPlayerRole } from "@/app/_game/roles";
 import {
   createRound,
   getVoteCandidates,
@@ -57,6 +58,16 @@ describe("game rules", () => {
   test("normalizes final guesses with trim and case-insensitive comparison", () => {
     expect(isFinalGuessCorrect("  PIZZA ", "pizza")).toBe(true);
     expect(isFinalGuessCorrect("pizzas", "pizza")).toBe(false);
+  });
+
+  test("derives impostor and citizen roles from the current round", () => {
+    const session = namedSession(4);
+    const round = session.currentRound!;
+    const impostor = session.players.find((player) => player.id === round.impostorPlayerId)!;
+    const citizen = session.players.find((player) => player.id !== round.impostorPlayerId)!;
+
+    expect(getPlayerRole(impostor.id, round)).toBe("impostor");
+    expect(getPlayerRole(citizen.id, round)).toBe("citizen");
   });
 });
 

@@ -2,18 +2,24 @@
 
 import { useEffect, useReducer, useState } from "react";
 import { categories } from "@/app/_content/words";
-import { Banner, Button, Card, Field, Screen, Select, TextInput } from "@/app/_components/ui";
+import {
+  Banner,
+  Button,
+  Card,
+  Field,
+  getPlayerStyle,
+  PlayerChip,
+  RevealPanel,
+  RoleBadge,
+  Screen,
+  Select,
+  TextInput,
+} from "@/app/_components/ui";
 import { trackEvent } from "@/app/_game/analytics";
-import { gameReducer, createInitialSession } from "@/app/_game/reducer";
-import {
-  getVoteCandidates,
-  hasDuplicateNames,
-} from "@/app/_game/rules";
-import {
-  clearSession,
-  loadSession,
-  saveSession,
-} from "@/app/_game/storage";
+import { getPlayerRole, getRoleMeta } from "@/app/_game/roles";
+import { createInitialSession, gameReducer } from "@/app/_game/reducer";
+import { getVoteCandidates, hasDuplicateNames } from "@/app/_game/rules";
+import { clearSession, loadSession, saveSession } from "@/app/_game/storage";
 import type { GameAction, GameSession, Player } from "@/app/_game/types";
 
 const clueTimerOptions = [
@@ -49,13 +55,21 @@ function getLeaders(players: Player[]) {
   return players.filter((player) => player.score === maxScore);
 }
 
+function playerInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+  if (parts.length === 0) {
+    return "?";
+  }
+
+  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
+}
+
 function useTimer(seconds: number | null, resetKey: string) {
   const [timerState, setTimerState] = useState({
     key: resetKey,
     remaining: seconds ?? 0,
   });
-  const remaining =
-    timerState.key === resetKey ? timerState.remaining : seconds ?? 0;
+  const remaining = timerState.key === resetKey ? timerState.remaining : seconds ?? 0;
 
   useEffect(() => {
     if (!seconds || remaining <= 0) {
@@ -75,43 +89,160 @@ function useTimer(seconds: number | null, resetKey: string) {
   return remaining;
 }
 
-function Timer({ seconds, resetKey }: { seconds: number | null; resetKey: string }) {
-  const remaining = useTimer(seconds, resetKey);
-
-  if (!seconds) {
-    return <p className="text-sm font-bold text-stone-600">Avance manual, sin temporizador.</p>;
-  }
+function PlayerAvatar({
+  player,
+  size = "md",
+  muted = false,
+}: {
+  player: Player;
+  size?: "sm" | "md";
+  muted?: boolean;
+}) {
+  const sizes = {
+    sm: "h-11 w-11 text-sm",
+    md: "h-14 w-14 text-base",
+  };
 
   return (
-    <div className="rounded-3xl border-2 border-stone-900 bg-stone-950 p-4 text-white">
-      <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-200">Tiempo</p>
-      <p className="mt-2 text-5xl font-black tabular-nums tracking-tighter">{remaining}s</p>
-      {remaining === 0 ? (
-        <p className="mt-2 text-sm font-bold text-amber-100">Tiempo agotado. Podéis avanzar cuando queráis.</p>
-      ) : null}
+    <div
+      className={`flex items-center justify-center rounded-full border-2 border-[color:var(--player-accent-strong)] bg-[color:var(--player-accent)] font-black text-white shadow-[0_8px_16px_rgba(0,0,0,0.14)] ${sizes[size]} ${muted ? "grayscale opacity-45" : ""}`}
+      style={getPlayerStyle(player.orderIndex)}
+    >
+      {playerInitials(player.name)}
+    </div>
+  );
+}
+
+function Timer({
+  seconds,
+  resetKey,
+  tone = "default",
+}: {
+  seconds: number | null;
+  resetKey: string;
+  tone?: "default" | "private";
+}) {
+  const remaining = useTimer(seconds, resetKey);
+  const progress = seconds ? Math.max(0, remaining / seconds) : 0;
+
+  if (!seconds) {
+    return (
+      <Card className="bg-white/82">
+        <p className="text-xs font-black uppercase tracking-[0.24em] text-[color:var(--color-text-secondary)]">
+          Ritmo
+        </p>
+        <p className="mt-2 text-lg font-black text-[color:var(--color-text-primary)]">
+          Avance manual, sin temporizador.
+        </p>
+      </Card>
+    );
+  }
+
+  const wrapperClass =
+    tone === "private"
+      ? "border-[color:rgba(255,250,244,0.12)] bg-white/8 text-[color:var(--color-text-inverse)]"
+      : "border-[color:var(--color-border)] bg-white/82 text-[color:var(--color-text-primary)]";
+  const labelClass =
+    tone === "private"
+      ? "text-[color:rgba(255,250,244,0.7)]"
+      : "text-[color:var(--color-text-secondary)]";
+
+  return (
+    <div className={`rounded-[var(--radius-lg)] border p-4 shadow-[var(--shadow-soft)] ${wrapperClass}`}>
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <p className={`text-xs font-black uppercase tracking-[0.24em] ${labelClass}`}>Tiempo</p>
+          <p className="mt-2 text-5xl font-black tabular-nums tracking-[-0.06em]">{remaining}s</p>
+        </div>
+        <p className={`max-w-28 text-right text-sm font-semibold ${labelClass}`}>
+          {remaining === 0 ? "Tiempo agotado." : "Ritmo suave para no romper el flujo."}
+        </p>
+      </div>
+      <div className="mt-4 h-3 overflow-hidden rounded-full bg-black/10">
+        <div
+          className="h-full rounded-full bg-[linear-gradient(90deg,var(--color-action-primary),var(--color-action-primary-soft))] transition-[width] duration-1000 ease-linear"
+          style={{ width: `${progress * 100}%` }}
+        />
+      </div>
     </div>
   );
 }
 
 function ScoreTable({ players }: { players: Player[] }) {
   return (
-    <div className="overflow-hidden rounded-3xl border-2 border-stone-900 bg-white">
+    <div className="grid gap-3">
       {orderedPlayers(players)
         .sort((a, b) => b.score - a.score || a.orderIndex - b.orderIndex)
         .map((player, index) => (
           <div
-            className="flex items-center justify-between border-b-2 border-stone-200 px-4 py-3 last:border-b-0"
+            className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-white/86 p-4 shadow-[var(--shadow-soft)]"
             key={player.id}
+            style={getPlayerStyle(player.orderIndex)}
           >
-            <span className="font-black text-stone-950">
-              {index + 1}. {player.name}
-            </span>
-            <span className="rounded-full bg-lime-200 px-3 py-1 text-sm font-black text-stone-950">
+            <div className="flex items-center gap-3">
+              <span className="w-6 text-sm font-black text-[color:var(--color-text-secondary)]">
+                {index + 1}.
+              </span>
+              <PlayerAvatar player={player} size="sm" />
+              <div>
+                <p className="font-black text-[color:var(--color-text-primary)]">{player.name}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[color:var(--player-accent-strong)]">
+                  Jugador
+                </p>
+              </div>
+            </div>
+            <span className="rounded-full border border-[color:var(--player-accent)] bg-[color:var(--player-accent-soft)] px-3 py-1 text-sm font-black text-[color:var(--color-text-primary)]">
               {player.score} pts
             </span>
           </div>
         ))}
     </div>
+  );
+}
+
+function VoteOption({
+  candidate,
+  selected,
+  onSelect,
+}: {
+  candidate: Player;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <label
+      className={`flex min-h-20 cursor-pointer items-center gap-3 rounded-[var(--radius-lg)] border-2 p-4 transition-all duration-[var(--motion-fast)] ease-out ${
+        selected
+          ? "border-[color:var(--player-accent-strong)] bg-[color:var(--player-accent-soft)] shadow-[0_14px_24px_rgba(0,0,0,0.16)]"
+          : "border-[color:rgba(255,250,244,0.12)] bg-white/8 hover:bg-white/12"
+      }`}
+      style={getPlayerStyle(candidate.orderIndex)}
+    >
+      <PlayerAvatar player={candidate} muted={false} />
+      <div className="flex-1">
+        <p className="text-lg font-black text-white">{candidate.name}</p>
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-white/65">
+          {selected ? "Seleccionado" : "Toca una vez para votar"}
+        </p>
+      </div>
+      <span
+        aria-hidden="true"
+        className={`flex h-7 w-7 items-center justify-center rounded-full border-2 ${
+          selected
+            ? "border-[color:var(--player-accent-strong)] bg-[color:var(--player-accent)] text-white"
+            : "border-white/35 bg-transparent text-transparent"
+        }`}
+      >
+        ✓
+      </span>
+      <input
+        checked={selected}
+        className="sr-only"
+        name="vote"
+        onChange={onSelect}
+        type="radio"
+      />
+    </label>
   );
 }
 
@@ -210,24 +341,26 @@ export function GameShell() {
       >
         {showHowTo ? (
           <Card>
-            <h2 className="text-xl font-black text-stone-950">Reglas rápidas</h2>
-            <p className="mt-2 font-semibold leading-7 text-stone-700">
+            <h2 className="text-[length:var(--text-title)] font-black tracking-[-0.04em] [font-family:var(--font-display)]">
+              Reglas rápidas
+            </h2>
+            <p className="mt-2 font-semibold leading-7 text-[color:var(--color-text-secondary)]">
               Todos reciben la misma palabra excepto una persona: el impostor. Cada jugador da una pista verbal, el grupo debate y despues vota en secreto. Si el impostor sobrevive suma 3 puntos; si lo descubren, puede intentar adivinar la palabra si la regla esta activa.
             </p>
           </Card>
         ) : (
           <div className="grid gap-3 sm:grid-cols-3">
-            <Card>
-              <p className="text-3xl font-black text-stone-950">3-10</p>
-              <p className="text-sm font-bold text-stone-600">jugadores</p>
+            <Card className="bg-white/86">
+              <p className="text-3xl font-black tracking-[-0.05em] [font-family:var(--font-display)]">3-10</p>
+              <p className="text-sm font-bold text-[color:var(--color-text-secondary)]">jugadores</p>
             </Card>
-            <Card>
-              <p className="text-3xl font-black text-stone-950">1</p>
-              <p className="text-sm font-bold text-stone-600">impostor</p>
+            <Card className="bg-white/86">
+              <p className="text-3xl font-black tracking-[-0.05em] [font-family:var(--font-display)]">1</p>
+              <p className="text-sm font-bold text-[color:var(--color-text-secondary)]">impostor</p>
             </Card>
-            <Card>
-              <p className="text-3xl font-black text-stone-950">local</p>
-              <p className="text-sm font-bold text-stone-600">sin cuentas</p>
+            <Card className="bg-white/86">
+              <p className="text-3xl font-black tracking-[-0.05em] [font-family:var(--font-display)]">local</p>
+              <p className="text-sm font-bold text-[color:var(--color-text-secondary)]">sin cuentas</p>
             </Card>
           </div>
         )}
@@ -245,11 +378,7 @@ export function GameShell() {
         eyebrow="Paso 1"
         title="Configura la partida"
         description="Elige los ajustes base. Podras volver a esta pantalla sin perder lo ya escrito mientras no empiece la ronda."
-        footer={
-          <Button onClick={() => dispatch({ type: "GO_TO_PLAYER_ENTRY" })}>
-            Continuar
-          </Button>
-        }
+        footer={<Button onClick={() => dispatch({ type: "GO_TO_PLAYER_ENTRY" })}>Continuar</Button>}
       >
         <Field label="Numero de jugadores" hint="Entre 3 y 10 personas.">
           <Select
@@ -336,14 +465,18 @@ export function GameShell() {
             ))}
           </Select>
         </Field>
-        <label className="flex items-center justify-between gap-4 rounded-3xl border-2 border-stone-200 bg-white/70 p-4">
+        <label className="flex items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[color:var(--color-border)] bg-white/72 p-4 shadow-[var(--shadow-soft)]">
           <span>
-            <span className="block text-sm font-black text-stone-950">Adivinanza final</span>
-            <span className="block text-sm font-semibold text-stone-600">Si descubren al impostor, puede intentar adivinar la palabra.</span>
+            <span className="block text-sm font-black text-[color:var(--color-text-primary)]">
+              Adivinanza final
+            </span>
+            <span className="block text-sm font-semibold text-[color:var(--color-text-secondary)]">
+              Si descubren al impostor, puede intentar adivinar la palabra.
+            </span>
           </span>
           <input
             checked={session.settings.finalGuessEnabled}
-            className="h-7 w-7 accent-amber-400"
+            className="h-7 w-7 accent-[color:var(--color-action-primary)]"
             onChange={(event) =>
               dispatch({
                 type: "UPDATE_SETTINGS",
@@ -369,10 +502,12 @@ export function GameShell() {
         }}
         eyebrow="Paso 2"
         title="Añade jugadores"
-        description="Estos nombres se usaran para turnos, votos y marcador. Los duplicados se permiten, pero pueden confundir al votar."
+        description="Estos nombres se usaran para turnos, votos y marcador. Los colores ayudan a reconocerlos más rapido en cada ronda."
         footer={
           <>
-            {duplicateNames ? <Banner>Hay nombres repetidos. Puedes continuar, pero conviene diferenciarlos.</Banner> : null}
+            {duplicateNames ? (
+              <Banner>Hay nombres repetidos. Puedes continuar, pero conviene diferenciarlos.</Banner>
+            ) : null}
             <Button disabled={emptyNames} onClick={() => dispatch({ type: "BEGIN_ROUND" })}>
               Empezar reparto
             </Button>
@@ -387,20 +522,25 @@ export function GameShell() {
       >
         <div className="grid gap-3">
           {orderedPlayers(session.players).map((player, index) => (
-            <Field key={player.id} label={`Jugador ${index + 1}`}>
-              <TextInput
-                maxLength={20}
-                onChange={(event) =>
-                  dispatch({
-                    type: "SET_PLAYER_NAME",
-                    playerId: player.id,
-                    name: event.target.value,
-                  })
-                }
-                placeholder={`Jugador ${index + 1}`}
-                value={player.name}
-              />
-            </Field>
+            <div key={player.id} style={getPlayerStyle(player.orderIndex)}>
+              <Field label={`Jugador ${index + 1}`} hint="Este color se mantiene durante toda la partida.">
+                <div className="flex items-center gap-3">
+                  <PlayerAvatar player={player} size="sm" />
+                  <TextInput
+                    maxLength={20}
+                    onChange={(event) =>
+                      dispatch({
+                        type: "SET_PLAYER_NAME",
+                        playerId: player.id,
+                        name: event.target.value,
+                      })
+                    }
+                    placeholder={`Jugador ${index + 1}`}
+                    value={player.name}
+                  />
+                </div>
+              </Field>
+            </div>
           ))}
         </div>
       </Screen>
@@ -417,11 +557,12 @@ export function GameShell() {
 
   if (session.status === "role_distribution") {
     const player = orderedPlayers(session.players)[session.roleDistributionIndex];
-    const isImpostor = player?.id === session.currentRound.impostorPlayerId;
+    const roleId = player ? getPlayerRole(player.id, session.currentRound) : "citizen";
+    const roleMeta = getRoleMeta(roleId);
+    const isImpostor = roleId === "impostor";
     const roleKey = `${session.currentRound.id}-${session.roleDistributionIndex}`;
     const roleVisible = roleReveal.key === roleKey && roleReveal.visible;
-    const hasRevealedAnyRole =
-      session.roleDistributionIndex > 0 || roleReveal.visible;
+    const hasRevealedAnyRole = session.roleDistributionIndex > 0 || roleReveal.visible;
 
     return (
       <Screen
@@ -451,26 +592,46 @@ export function GameShell() {
           )
         }
       >
-        <div className="flex flex-1 items-center justify-center rounded-[2rem] border-2 border-white/20 bg-black/35 p-6 text-center text-white">
-          {roleVisible ? (
-            <div>
-              <p className="text-sm font-black uppercase tracking-[0.25em] text-amber-200">
-                {isImpostor ? "Rol secreto" : "Palabra secreta"}
+        {player ? (
+          <div className="mb-1">
+            <PlayerChip
+              emphasis="current"
+              name={player.name}
+              orderIndex={player.orderIndex}
+              suffix={roleVisible ? "activo" : "en privado"}
+            />
+          </div>
+        ) : null}
+        {roleVisible ? (
+          <div
+            className={`flex flex-1 items-center justify-center rounded-[calc(var(--radius-xl)+2px)] border px-6 py-8 text-center shadow-[0_20px_40px_rgba(0,0,0,0.18)] ${
+              isImpostor
+                ? "border-[#86525a] bg-[radial-gradient(circle_at_50%_0%,rgba(216,76,76,0.35),transparent_18rem),linear-gradient(180deg,rgba(58,22,28,0.98),rgba(29,14,20,0.98))] text-[color:var(--color-text-inverse)]"
+                : "border-[color:rgba(255,250,244,0.14)] bg-[radial-gradient(circle_at_50%_0%,rgba(229,154,46,0.18),transparent_18rem),linear-gradient(180deg,rgba(31,27,41,0.98),rgba(20,17,28,0.98))] text-[color:var(--color-text-inverse)]"
+            }`}
+          >
+            <div className="max-w-sm">
+              <p className="text-[length:var(--text-label)] font-black uppercase tracking-[0.28em] text-[color:var(--color-action-primary-soft)]">
+                Rol secreto
               </p>
-              <p className="mt-4 text-5xl font-black tracking-tighter">
-                {isImpostor ? "Eres el impostor" : session.currentRound.secretWordValue}
+              <RoleBadge className="mt-5" roleId={roleId} />
+              <p className="mt-5 text-balance text-5xl font-black tracking-[-0.07em] [font-family:var(--font-display)] sm:text-6xl">
+                {isImpostor ? "No recibes palabra" : session.currentRound.secretWordValue}
               </p>
-              <p className="mt-5 text-sm font-bold text-white/75">
-                Memoriza esto y pulsa ocultar antes de pasar el movil.
+              <p className="mt-4 text-sm font-semibold leading-6 text-white/78 sm:text-base">
+                {isImpostor
+                  ? roleMeta.description
+                  : "Memoriza la palabra secreta, mantén el rol en privado y pulsa ocultar antes de pasar el móvil."}
               </p>
             </div>
-          ) : (
-            <div>
-              <p className="text-5xl font-black">Pantalla oculta</p>
-              <p className="mt-4 text-white/70">Pulsa solo cuando tengas el dispositivo en tus manos.</p>
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <RevealPanel
+            description="Pulsa solo cuando tengas el dispositivo en tus manos."
+            eyebrow="Pantalla privada"
+            title="Pantalla oculta"
+          />
+        )}
       </Screen>
     );
   }
@@ -486,26 +647,43 @@ export function GameShell() {
         description="La pista se dice en voz alta fuera de la app. No expliques demasiado."
         footer={<Button onClick={() => dispatch({ type: "NEXT_CLUE" })}>Siguiente</Button>}
       >
+        {player ? (
+          <Card className="bg-white/88">
+            <div className="flex items-center gap-4">
+              <PlayerAvatar player={player} />
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-[color:var(--color-text-secondary)]">
+                  Turno actual
+                </p>
+                <p className="mt-1 text-[length:var(--text-title)] font-black tracking-[-0.04em] [font-family:var(--font-display)]">
+                  {player.name}
+                </p>
+              </div>
+            </div>
+          </Card>
+        ) : null}
         <Timer
           resetKey={`${session.currentRound.id}-${session.clueTurnIndex}`}
           seconds={session.settings.clueTimerSeconds}
         />
-        <Card>
-          <p className="text-sm font-black uppercase tracking-[0.2em] text-stone-500">Orden de ronda</p>
+        <Card className="bg-white/84">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[color:var(--color-text-secondary)]">
+            Orden de ronda
+          </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {session.currentRound.turnOrderPlayerIds.map((id, index) => {
               const turnPlayer = getPlayer(session.players, id);
+              if (!turnPlayer) {
+                return null;
+              }
+
               return (
-                <span
-                  className={`rounded-full px-3 py-2 text-sm font-black ${
-                    index === session.clueTurnIndex
-                      ? "bg-amber-300 text-stone-950"
-                      : "bg-stone-100 text-stone-600"
-                  }`}
+                <PlayerChip
+                  emphasis={index === session.clueTurnIndex ? "current" : "normal"}
                   key={id}
-                >
-                  {turnPlayer?.name}
-                </span>
+                  name={turnPlayer.name}
+                  orderIndex={turnPlayer.orderIndex}
+                />
               );
             })}
           </div>
@@ -530,22 +708,20 @@ export function GameShell() {
           resetKey={`${session.currentRound.id}-debate`}
           seconds={session.settings.debateTimerSeconds}
         />
+        <Banner>
+          Una sola acción aquí: debatir y decidir cuándo pasar a la votación secreta.
+        </Banner>
       </Screen>
     );
   }
 
   if (session.status === "voting_phase" || session.status === "tie_break_voting") {
     const voter = orderedPlayers(session.players)[session.voteVoterIndex];
-    const candidates = voter
-      ? getVoteCandidates(session.players, voter.id, session.tieCandidateIds)
-      : [];
+    const candidates = voter ? getVoteCandidates(session.players, voter.id, session.tieCandidateIds) : [];
     const isTieBreak = session.status === "tie_break_voting";
     const voteKey = `${session.status}-${session.voteVoterIndex}`;
-    const selectedVoteTarget =
-      voteSelection.key === voteKey ? voteSelection.targetId : "";
-    const hasPrimaryVotes = session.currentRound.votes.some(
-      (vote) => vote.phase === "primary",
-    );
+    const selectedVoteTarget = voteSelection.key === voteKey ? voteSelection.targetId : "";
+    const hasPrimaryVotes = session.currentRound.votes.some((vote) => vote.phase === "primary");
 
     return (
       <Screen
@@ -574,28 +750,27 @@ export function GameShell() {
           </Button>
         }
       >
+        {voter ? (
+          <div className="mb-1">
+            <PlayerChip
+              emphasis="current"
+              name={voter.name}
+              orderIndex={voter.orderIndex}
+              suffix="vota"
+            />
+          </div>
+        ) : null}
         <div className="grid gap-3">
           {candidates.map((candidate) => (
-            <label
-              className={`flex min-h-14 items-center justify-between rounded-3xl border-2 p-4 font-black ${
-                selectedVoteTarget === candidate.id
-                  ? "border-amber-300 bg-amber-300 text-stone-950"
-                  : "border-stone-300 bg-stone-50 text-stone-950 shadow-[0_4px_0_rgba(28,25,23,0.16)]"
-              }`}
+            <VoteOption
+              candidate={candidate}
               key={candidate.id}
-            >
-              <span>{candidate.name}</span>
-              <input
-                checked={selectedVoteTarget === candidate.id}
-                className="h-6 w-6 accent-amber-300"
-                name="vote"
-                onChange={() => setVoteSelection({ key: voteKey, targetId: candidate.id })}
-                type="radio"
-              />
-            </label>
+              onSelect={() => setVoteSelection({ key: voteKey, targetId: candidate.id })}
+              selected={selectedVoteTarget === candidate.id}
+            />
           ))}
         </div>
-        <Banner>Tras confirmar, oculta la pantalla antes de pasar el movil.</Banner>
+        <Banner tone="danger">Tras confirmar, oculta la pantalla antes de pasar el movil.</Banner>
       </Screen>
     );
   }
@@ -604,42 +779,62 @@ export function GameShell() {
     const result = session.currentRound.result;
     const expelled = getPlayer(session.players, result?.expelledPlayerId);
     const impostor = getPlayer(session.players, session.currentRound.impostorPlayerId);
+    const impostorRole = getRoleMeta("impostor");
     const wasDetected = result?.outcome === "impostor_detected";
+    const detectedAndResolved =
+      result?.outcome === "impostor_detected" ||
+      result?.outcome === "impostor_detected_and_guessed" ||
+      result?.outcome === "impostor_detected_and_failed";
 
     return (
       <Screen
         eyebrow="Resolucion"
-        title={
-          result?.expelledPlayerId
-            ? `${expelled?.name} fue señalado`
-            : "Sin expulsión"
-        }
+        title={result?.expelledPlayerId ? `${expelled?.name} fue señalado` : "Sin expulsión"}
         description={
           result?.expelledPlayerId
-            ? wasDetected
-              ? "El grupo encontro al impostor."
-              : "El grupo señalo a una persona inocente."
-            : "El empate persistio. El impostor sobrevive esta ronda."
+            ? detectedAndResolved
+              ? "El grupo encontró al impostor."
+              : "El grupo señaló a una persona inocente."
+            : "El empate persistió. El impostor sobrevive esta ronda."
         }
         footer={
           <Button onClick={() => dispatch({ type: "CONTINUE_FROM_REVEAL" })}>
-            {wasDetected && session.settings.finalGuessEnabled
-              ? "Adivinanza final"
-              : "Ver marcador"}
+            {wasDetected && session.settings.finalGuessEnabled ? "Adivinanza final" : "Ver marcador"}
           </Button>
         }
+        tone="celebration"
       >
-        <Card>
-          <dl className="grid gap-3">
-            <div>
-              <dt className="text-xs font-black uppercase tracking-[0.2em] text-stone-500">Impostor</dt>
-              <dd className="text-2xl font-black text-stone-950">{impostor?.name}</dd>
+        <Card className="bg-white/88">
+          <p className="text-xs font-black uppercase tracking-[0.24em] text-[color:var(--color-text-secondary)]">
+            Resultado de ronda
+          </p>
+          <div className="mt-4 grid gap-4">
+            <div className="flex items-center gap-3">
+              {impostor ? <PlayerAvatar player={impostor} /> : null}
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[color:var(--color-danger)]">
+                  Rol revelado
+                </p>
+                <div className="mt-2">
+                  <RoleBadge roleId="impostor" />
+                </div>
+                <p className="text-[length:var(--text-title)] font-black tracking-[-0.04em] [font-family:var(--font-display)]">
+                  {impostor?.name}
+                </p>
+                <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-[color:var(--color-text-secondary)]">
+                  {impostorRole.description}
+                </p>
+              </div>
             </div>
-            <div>
-              <dt className="text-xs font-black uppercase tracking-[0.2em] text-stone-500">Palabra</dt>
-              <dd className="text-2xl font-black text-stone-950">{session.currentRound.secretWordValue}</dd>
+            <div className="rounded-[var(--radius-md)] border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-4">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[color:var(--color-text-secondary)]">
+                Palabra secreta
+              </p>
+              <p className="mt-2 text-3xl font-black tracking-[-0.05em] [font-family:var(--font-display)]">
+                {session.currentRound.secretWordValue}
+              </p>
             </div>
-          </dl>
+          </div>
         </Card>
       </Screen>
     );
@@ -665,6 +860,11 @@ export function GameShell() {
           </Button>
         }
       >
+        {impostor ? (
+          <div className="mb-1">
+            <PlayerChip emphasis="current" name={impostor.name} orderIndex={impostor.orderIndex} />
+          </div>
+        ) : null}
         <Field label="Adivinanza del impostor">
           <TextInput
             autoFocus

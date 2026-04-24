@@ -1,21 +1,89 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fff7ed;
-  --foreground: #1c1917;
+  --color-bg: #fff7eb;
+  --color-bg-muted: #f9ecd8;
+  --color-surface: #fffdf8;
+  --color-surface-strong: #fffaf0;
+  --color-border: #d9c8aa;
+  --color-border-strong: #443325;
+
+  --color-text-primary: #221913;
+  --color-text-secondary: #69584b;
+  --color-text-inverse: #fffaf4;
+
+  --color-action-primary: #e59a2e;
+  --color-action-primary-pressed: #c57d16;
+  --color-action-primary-soft: #f4c778;
+  --color-success: #2f9a67;
+  --color-danger: #d84c4c;
+  --color-danger-soft: #f3b5ad;
+  --color-private: #17141f;
+  --color-private-surface: #221d2d;
+  --color-private-border: #4b4358;
+
+  --color-player-1: #ef7f6d;
+  --color-player-2: #5f8bff;
+  --color-player-3: #3fa883;
+  --color-player-4: #d7a62e;
+  --color-player-5: #8d73ef;
+  --color-player-6: #db8869;
+  --color-player-7: #2b9faa;
+  --color-player-8: #cf5a8e;
+  --color-player-9: #4a9e55;
+  --color-player-10: #cb6f2d;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+
+  --radius-sm: 14px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+
+  --text-label: 0.75rem;
+  --text-body: 1rem;
+  --text-title: 1.35rem;
+  --text-display: clamp(2.5rem, 8vw, 4.75rem);
+
+  --shadow-rest: 0 12px 0 rgba(68, 51, 37, 0.95);
+  --shadow-soft: 0 6px 18px rgba(79, 57, 27, 0.12);
+  --shadow-pressed: 0 6px 0 rgba(68, 51, 37, 0.95);
+
+  --motion-fast: 160ms;
+  --motion-base: 220ms;
+
+  --font-ui:
+    "Trebuchet MS", "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-display:
+    "Trebuchet MS", "Arial Rounded MT Bold", "Avenir Next Condensed",
+    "Avenir Next", sans-serif;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: "Trebuchet MS", "Avenir Next", sans-serif;
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text-primary);
+  --font-sans: var(--font-ui);
   --font-mono: "SFMono-Regular", "Consolas", monospace;
 }
 
+html {
+  background: var(--color-bg);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: "Trebuchet MS", "Avenir Next", sans-serif;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(244, 199, 120, 0.35), transparent 26rem),
+    radial-gradient(circle at bottom right, rgba(216, 76, 76, 0.1), transparent 24rem),
+    linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-muted) 100%);
+  color: var(--color-text-primary);
+  font-family: var(--font-ui);
 }
 
 button,
@@ -24,7 +92,25 @@ select {
   font: inherit;
 }
 
+button,
+label,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
 ::selection {
-  background: #fcd34d;
-  color: #1c1917;
+  background: var(--color-action-primary-soft);
+  color: var(--color-text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
