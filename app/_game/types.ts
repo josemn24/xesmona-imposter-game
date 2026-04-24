@@ -36,6 +36,7 @@ export type Player = {
   score: number;
   orderIndex: number;
   isActive: boolean;
+  avatarId: string;
 };
 
 export type GameSettings = {

@@ -2,11 +2,15 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { GameShell } from "@/app/_components/game-shell";
 
-function startRound() {
+function openPlayerEntry() {
   render(<GameShell />);
 
   fireEvent.click(screen.getByRole("button", { name: "Nueva partida" }));
   fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+}
+
+function startRound() {
+  openPlayerEntry();
 
   const nameInputs = screen.getAllByPlaceholderText(/Jugador \d+/);
   nameInputs.forEach((input, index) => {
@@ -24,6 +28,12 @@ describe("GameShell roles", () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  test("shows assigned avatars on player entry", () => {
+    openPlayerEntry();
+
+    expect(screen.getAllByAltText(/Avatar de jugador/i).length).toBeGreaterThan(0);
   });
 
   test("shows citizen role and the secret word during role distribution", () => {
@@ -69,5 +79,6 @@ describe("GameShell roles", () => {
 
     expect(screen.getByText("Rol revelado")).toBeDefined();
     expect(screen.getByText("Impostor")).toBeDefined();
+    expect(screen.getAllByAltText(/Avatar de Jugador/i).length).toBeGreaterThan(0);
   });
 });

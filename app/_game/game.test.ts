@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
+import { avatarIds } from "@/app/_game/avatars";
 import { gameReducer, createInitialSession } from "@/app/_game/reducer";
 import { getPlayerRole } from "@/app/_game/roles";
 import {
@@ -37,6 +38,15 @@ function forceVoting(session: GameSession): GameSession {
 }
 
 describe("game rules", () => {
+  test("creates players with unique avatar ids while avatars are available", () => {
+    const session = gameReducer(createInitialSession(), { type: "START_NEW_GAME" });
+    const avatarIdsInSession = session.players.map((player) => player.avatarId);
+
+    expect(avatarIdsInSession).toHaveLength(session.settings.playerCount);
+    expect(new Set(avatarIdsInSession).size).toBe(session.settings.playerCount);
+    expect(avatarIdsInSession.every((avatarId) => avatarIds.includes(avatarId as (typeof avatarIds)[number]))).toBe(true);
+  });
+
   test("creates a round with one impostor and one valid word", () => {
     const session = namedSession(5);
     const round = createRound(1, session.players, session.settings, () => 0);
@@ -91,6 +101,20 @@ describe("game reducer", () => {
     expect(session.settings.roundsTotal).toBe(7);
     expect(session.settings.categoryId).toBe("animales");
     expect(session.players[0].name).toBe("Ana");
+    expect(session.players[0].avatarId).toBeTruthy();
+  });
+
+  test("keeps existing avatars and assigns unique avatars to added players", () => {
+    let session = gameReducer(createInitialSession(), { type: "START_NEW_GAME" });
+    const originalAvatarIds = session.players.map((player) => player.avatarId);
+
+    session = gameReducer(session, {
+      type: "UPDATE_SETTINGS",
+      settings: { playerCount: session.settings.playerCount + 2 },
+    });
+
+    expect(session.players.slice(0, originalAvatarIds.length).map((player) => player.avatarId)).toEqual(originalAvatarIds);
+    expect(new Set(session.players.map((player) => player.avatarId)).size).toBe(session.players.length);
   });
 
   test("aborts current round back to player entry without changing scores", () => {
@@ -235,6 +259,7 @@ describe("storage", () => {
     saveSession(session);
 
     expect(loadSession()?.id).toBe(session.id);
+    expect(loadSession()?.players.map((player) => player.avatarId)).toEqual(session.players.map((player) => player.avatarId));
   });
 
   test("ignores and clears corrupt sessions", () => {
@@ -249,5 +274,24 @@ describe("storage", () => {
     clearSession();
 
     expect(loadSession()).toBeNull();
+  });
+
+  test("repairs missing avatar ids from older sessions", () => {
+    const session = namedSession(3);
+    const legacySession = {
+      ...session,
+      players: session.players.map(({ avatarId, ...player }) => {
+        void avatarId;
+        return player;
+      }),
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(legacySession));
+
+    const loaded = loadSession();
+
+    expect(loaded).not.toBeNull();
+    expect(loaded?.players.every((player) => player.avatarId)).toBe(true);
+    expect(new Set(loaded?.players.map((player) => player.avatarId)).size).toBe(3);
   });
 });

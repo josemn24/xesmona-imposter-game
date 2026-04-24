@@ -1,4 +1,5 @@
 import { getEnabledWords } from "@/app/_content/words";
+import { pickAvatarIds } from "@/app/_game/avatars";
 import type {
   FinalGuess,
   GameSettings,
@@ -28,12 +29,15 @@ export function createId(prefix: string) {
 }
 
 export function createPlayers(count: number): Player[] {
+  const assignedAvatarIds = pickAvatarIds(count);
+
   return Array.from({ length: count }, (_, index) => ({
     id: createId("player"),
     name: "",
     score: 0,
     orderIndex: index,
     isActive: true,
+    avatarId: assignedAvatarIds[index]!,
   }));
 }
 
@@ -48,6 +52,11 @@ export function resizePlayers(players: Player[], count: number): Player[] {
     return keptPlayers;
   }
 
+  const assignedAvatarIds = pickAvatarIds(
+    count - keptPlayers.length,
+    keptPlayers.map((player) => player.avatarId),
+  );
+
   return [
     ...keptPlayers,
     ...Array.from({ length: count - keptPlayers.length }, (_, index) => {
@@ -58,6 +67,7 @@ export function resizePlayers(players: Player[], count: number): Player[] {
         score: 0,
         orderIndex,
         isActive: true,
+        avatarId: assignedAvatarIds[index]!,
       };
     }),
   ];

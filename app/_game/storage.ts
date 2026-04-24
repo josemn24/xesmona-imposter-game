@@ -1,6 +1,7 @@
+import { repairPlayerAvatars } from "@/app/_game/avatars";
 import type { GameSession } from "@/app/_game/types";
 
-export const STORAGE_KEY = "imposter-game:v1";
+export const STORAGE_KEY = "imposter-game:v2";
 
 export function isPersistableSession(session: GameSession) {
   return session.status !== "idle" && session.status !== "finished";
@@ -30,7 +31,10 @@ export function loadSession(storage: Storage = localStorage): GameSession | null
       return null;
     }
 
-    return parsed as GameSession;
+    return {
+      ...(parsed as GameSession),
+      players: repairPlayerAvatars((parsed.players ?? []) as GameSession["players"]),
+    };
   } catch {
     storage.removeItem(STORAGE_KEY);
     return null;

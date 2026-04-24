@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useReducer, useState } from "react";
 import { categories } from "@/app/_content/words";
 import {
@@ -15,6 +16,7 @@ import {
   Select,
   TextInput,
 } from "@/app/_components/ui";
+import { getAvatarSrc } from "@/app/_game/avatars";
 import { trackEvent } from "@/app/_game/analytics";
 import { getPlayerRole, getRoleMeta } from "@/app/_game/roles";
 import { createInitialSession, gameReducer } from "@/app/_game/reducer";
@@ -55,15 +57,6 @@ function getLeaders(players: Player[]) {
   return players.filter((player) => player.score === maxScore);
 }
 
-function playerInitials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
-  if (parts.length === 0) {
-    return "?";
-  }
-
-  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
-}
-
 function useTimer(seconds: number | null, resetKey: string) {
   const [timerState, setTimerState] = useState({
     key: resetKey,
@@ -99,16 +92,23 @@ function PlayerAvatar({
   muted?: boolean;
 }) {
   const sizes = {
-    sm: "h-11 w-11 text-sm",
-    md: "h-14 w-14 text-base",
+    sm: "h-11 w-11",
+    md: "h-14 w-14",
   };
 
   return (
     <div
-      className={`flex items-center justify-center rounded-full border-2 border-[color:var(--player-accent-strong)] bg-[color:var(--player-accent)] font-black text-white shadow-[0_8px_16px_rgba(0,0,0,0.14)] ${sizes[size]} ${muted ? "grayscale opacity-45" : ""}`}
+      className={`relative overflow-hidden rounded-full border-2 border-[color:var(--player-accent-strong)] bg-[color:var(--player-accent-soft)] shadow-[0_8px_16px_rgba(0,0,0,0.14)] ${sizes[size]} ${muted ? "grayscale opacity-45" : ""}`}
       style={getPlayerStyle(player.orderIndex)}
     >
-      {playerInitials(player.name)}
+      <Image
+        alt={player.name.trim() ? `Avatar de ${player.name}` : "Avatar de jugador"}
+        className="object-cover"
+        fill
+        sizes={size === "sm" ? "44px" : "56px"}
+        src={getAvatarSrc(player.avatarId)}
+        unoptimized
+      />
     </div>
   );
 }
@@ -502,7 +502,7 @@ export function GameShell() {
         }}
         eyebrow="Paso 2"
         title="Añade jugadores"
-        description="Estos nombres se usaran para turnos, votos y marcador. Los colores ayudan a reconocerlos más rapido en cada ronda."
+        description="Estos nombres se usaran para turnos, votos y marcador. Cada jugador recibe un avatar aleatorio que se mantiene durante toda la partida."
         footer={
           <>
             {duplicateNames ? (
@@ -523,7 +523,7 @@ export function GameShell() {
         <div className="grid gap-3">
           {orderedPlayers(session.players).map((player, index) => (
             <div key={player.id} style={getPlayerStyle(player.orderIndex)}>
-              <Field label={`Jugador ${index + 1}`} hint="Este color se mantiene durante toda la partida.">
+              <Field label={`Jugador ${index + 1}`} hint="El avatar y el color se mantienen durante toda la partida.">
                 <div className="flex items-center gap-3">
                   <PlayerAvatar player={player} size="sm" />
                   <TextInput
