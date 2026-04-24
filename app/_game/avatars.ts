@@ -21,7 +21,7 @@ export function getAvatarSrc(avatarId: string) {
   return `/avatars-transparent/${avatarId}.png`;
 }
 
-function shuffleItems<T>(items: T[], random = Math.random) {
+function shuffleItems<T>(items: readonly T[], random = Math.random): T[] {
   const next = [...items];
 
   for (let index = next.length - 1; index > 0; index -= 1) {
