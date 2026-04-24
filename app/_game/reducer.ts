@@ -4,9 +4,11 @@ import {
   createPlayers,
   createRound,
   defaultSettings,
+  hasValidManualSecretWord,
   hasEmptyNames,
   isFinalGuessCorrect,
   markScoreApplied,
+  resetRoundScopedSettings,
   resizePlayers,
   resolveVotes,
 } from "@/app/_game/rules";
@@ -189,7 +191,10 @@ export function gameReducer(session: GameSession, action: GameAction): GameSessi
       });
 
     case "BEGIN_ROUND": {
-      if (hasEmptyNames(session.players)) {
+      if (
+        hasEmptyNames(session.players) ||
+        (session.settings.wordMode === "manual" && !hasValidManualSecretWord(session.settings))
+      ) {
         return session;
       }
 
@@ -199,6 +204,7 @@ export function gameReducer(session: GameSession, action: GameAction): GameSessi
       return touch({
         ...session,
         status: "role_distribution",
+        settings: resetRoundScopedSettings(session.settings),
         currentRound: round,
         currentRoundNumber: nextRoundNumber,
         roleDistributionIndex: 0,
